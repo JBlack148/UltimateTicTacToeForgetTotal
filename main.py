@@ -16,22 +16,32 @@ DISPLAYSURF = pygame.display.set_mode((BOARD_WIDTH, BOARD_HEIGHT))
 pygame.display.set_caption('ULTIMATE Tic Tac Toe')
 bgrnd = pygame.image.load(str(ASSET_DIR / "Board.png")).convert()
 DISPLAYSURF.blit(bgrnd, (0, 0))
-count = 0
+
+
+def create_initial_state():
+    return {
+        "count": 0,
+        "nextbox": [0, 1, 2, 3, 4, 5, 6, 7, 8],
+        "board": [[['', '', ''], ['', '', ''], ['', '', '']],
+                  [['', '', ''], ['', '', ''], ['', '', '']],
+                  [['', '', ''], ['', '', ''], ['', '', '']],
+                  [['', '', ''], ['', '', ''], ['', '', '']],
+                  [['', '', ''], ['', '', ''], ['', '', '']],
+                  [['', '', ''], ['', '', ''], ['', '', '']],
+                  [['', '', ''], ['', '', ''], ['', '', '']],
+                  [['', '', ''], ['', '', ''], ['', '', '']],
+                  [['', '', ''], ['', '', ''], ['', '', '']]],
+        "largeboard": ['', '', '', '', '', '', '', '', ''],
+        "piece_history": [{"x": [], "o": []} for _ in range(9)],
+        "large_win_history": {"X": [], "O": []},
+        "game_over": False,
+        "winner": None,
+    }
+
+
+state = create_initial_state()
 colforboard = 0
 rowforboard = 0
-nextbox = [0,1,2,3,4,5,6,7,8]
-board = [[['', '', ''], ['', '', ''], ['', '', '']],
-         [['', '', ''], ['', '', ''], ['', '', '']],
-         [['', '', ''], ['', '', ''], ['', '', '']],
-         [['', '', ''], ['', '', ''], ['', '', '']],
-         [['', '', ''], ['', '', ''], ['', '', '']],
-         [['', '', ''], ['', '', ''], ['', '', '']],
-         [['', '', ''], ['', '', ''], ['', '', '']],
-         [['', '', ''], ['', '', ''], ['', '', '']],
-         [['', '', ''], ['', '', ''], ['', '', '']]]
-largeboard = ['', '', '', '', '', '', '', '', '']
-piece_history = [{"x": [], "o": []} for _ in range(9)]
-large_win_history = {"X": [], "O": []}
 
 
 #functions for resources
@@ -261,12 +271,12 @@ def highlightlocation(coords):
     return x, y
 
 
-def render_board_state():
+def render_board_state(current_state):
     DISPLAYSURF.blit(bgrnd, (0, 0))
     for bigbox in range(9):
         for row in range(3):
             for col in range(3):
-                value = board[bigbox][row][col]
+                value = current_state["board"][bigbox][row][col]
                 if value == "o":
                     abs_col = (bigbox % 3) * 3 + col
                     abs_row = (bigbox // 3) * 3 + row
@@ -276,10 +286,79 @@ def render_board_state():
                     abs_row = (bigbox // 3) * 3 + row
                     cross(coordstoboard((abs_col, abs_row)))
     for bigbox in range(9):
-        if largeboard[bigbox] == "O":
+        if current_state["largeboard"][bigbox] == "O":
             knotbig(bigbox)
-        elif largeboard[bigbox] == "X":
+        elif current_state["largeboard"][bigbox] == "X":
             crossbig(bigbox)
+
+
+def get_legal_moves(current_state):
+    if current_state["game_over"]:
+        return []
+
+    allowed = current_state["nextbox"]
+    legal_moves = []
+    for bigbox in allowed:
+        if current_state["largeboard"][bigbox] != "":
+            continue
+        for row in range(3):
+            for col in range(3):
+                if current_state["board"][bigbox][row][col] == "":
+                    legal_moves.append((bigbox, row, col))
+    if len(legal_moves) == 0:
+        for bigbox in range(9):
+            if current_state["largeboard"][bigbox] == "":
+                for row in range(3):
+                    for col in range(3):
+                        if current_state["board"][bigbox][row][col] == "":
+                            legal_moves.append((bigbox, row, col))
+    return legal_moves
+
+
+def try_apply_move(current_state, bigbox, row, col):
+    if current_state["game_over"]:
+        return current_state, False
+    if (bigbox, row, col) not in get_legal_moves(current_state):
+        return current_state, False
+
+    next_state = {
+        "count": current_state["count"],
+        "nextbox": list(current_state["nextbox"]),
+        "board": [
+            [[cell for cell in inner_row] for inner_row in box]
+            for box in current_state["board"]
+        ],
+        "largeboard": list(current_state["largeboard"]),
+        "piece_history": [{"x": list(history["x"]), "o": list(history["o"])} for history in current_state["piece_history"]],
+        "large_win_history": {"X": list(current_state["large_win_history"]["X"]), "O": list(current_state["large_win_history"]["O"])},
+        "game_over": current_state["game_over"],
+        "winner": current_state["winner"],
+    }
+
+    next_state["count"] += 1
+    if next_state["count"] % 2 == 0:
+        mark = "o"
+    else:
+        mark = "x"
+
+    place_piece(next_state["board"][bigbox], next_state["piece_history"][bigbox], row, col, mark)
+    small_winner = boxwincheck(next_state["board"][bigbox])
+    if small_winner:
+        record_large_win(bigbox, small_winner, next_state["board"], next_state["largeboard"], next_state["piece_history"], next_state["large_win_history"])
+
+    winner = wincheck(next_state["largeboard"])
+    if winner in ("X wins", "O wins"):
+        next_state["game_over"] = True
+        next_state["winner"] = winner
+        pygame.display.set_caption(f"ULTIMATE Tic Tac Toe - {winner}")
+
+    target_box = whatnumberbox((col, row))
+    if target_box is not None and next_state["largeboard"][target_box] == "":
+        next_state["nextbox"] = [target_box]
+    else:
+        next_state["nextbox"] = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+
+    return next_state, True
 
 
 def wincheck(square):
@@ -386,55 +465,30 @@ pygame.display.update()
 #food for thought: what is an arm?
 
 #GAME
-game_over = False
 while True:
     for event in pygame.event.get():
         if event.type == QUIT:
             pygame.quit()
             sys.exit()
-        elif event.type == MOUSEBUTTONDOWN and not game_over:
+        elif event.type == MOUSEBUTTONDOWN and not state["game_over"]:
             coords = userclick()
-            print(coords, "coords")
-            insidebox = pos_in_box(coords)
-            bbox = whatnumberbox(boxcoords(coords))
-            boardlocation = coordstoboard(coords)
-            print(insidebox, "insidebox")
-            print(bbox, "bbox")
-            if coords[1] != None and coords[0] != None and boardlocation != None and largeboard[bbox] == "":
-                if bbox in nextbox and board[bbox][insidebox[1]][insidebox[0]] == "":
-                    count = count + 1
-                    if count % 2 == 0:
-                        mark = "o"
-                    else:
-                        mark = "x"
-                    place_piece(board[bbox], piece_history[bbox], insidebox[1], insidebox[0], mark)
-                    small_winner = boxwincheck(board[bbox])
-                    if small_winner:
-                        record_large_win(bbox, small_winner, board, largeboard, piece_history, large_win_history)
-                        if small_winner == "O":
-                            knotbig(bbox)
-                        else:
-                            crossbig(bbox)
-                    winner = wincheck(largeboard)
-                    if winner in ("X wins", "O wins"):
-                        game_over = True
-                        pygame.display.set_caption(f"ULTIMATE Tic Tac Toe - {winner}")
-                        print(winner)
-                    target_box = whatnumberbox(insidebox)
-                    if largeboard[target_box] == "":
-                        nextbox = [target_box]
-                    else:
-                        nextbox = [0,1,2,3,4,5,6,7,8]
-                print(nextbox, "nextbox")
-                print(board)
+            if coords[1] is not None and coords[0] is not None:
+                insidebox = pos_in_box(coords)
+                bbox = whatnumberbox(boxcoords(coords))
+                boardlocation = coordstoboard(coords)
+                if bbox is not None and insidebox is not None and boardlocation is not None:
+                    state, applied = try_apply_move(state, bbox, insidebox[1], insidebox[0])
+                    if applied:
+                        print(state["nextbox"], "nextbox")
+                        print(state["board"])
 
-    render_board_state()
+    render_board_state(state)
 
-    if len(nextbox) == 9:
+    if len(state["nextbox"]) == 9:
         highlightbig()
         highlight.update_position(None)
-    elif len(nextbox) == 1:
-        highlight_box = nextbox[0]
+    elif len(state["nextbox"]) == 1:
+        highlight_box = state["nextbox"][0]
         highlight_pos = highlightlocation((highlight_box % 3, highlight_box // 3))
         highlight.update_position(highlight_pos)
     else:
