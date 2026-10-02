@@ -1,4 +1,5 @@
 import sys
+import random
 from pathlib import Path
 
 import pygame
@@ -315,6 +316,13 @@ def get_legal_moves(current_state):
     return legal_moves
 
 
+def choose_random_move(current_state):
+    legal_moves = get_legal_moves(current_state)
+    if not legal_moves:
+        return None
+    return random.choice(legal_moves)
+
+
 def try_apply_move(current_state, bigbox, row, col):
     if current_state["game_over"]:
         return current_state, False
@@ -479,6 +487,10 @@ while True:
                 if bbox is not None and insidebox is not None and boardlocation is not None:
                     state, applied = try_apply_move(state, bbox, insidebox[1], insidebox[0])
                     if applied:
+                        if not state["game_over"]:
+                            opponent_move = choose_random_move(state)
+                            if opponent_move is not None:
+                                state, _ = try_apply_move(state, *opponent_move)
                         print(state["nextbox"], "nextbox")
                         print(state["board"])
 
