@@ -8,6 +8,8 @@ from pygame.locals import MOUSEBUTTONDOWN, QUIT
 from game_rules import create_initial_state, get_legal_moves, try_apply_move
 from highlight import Highlight
 
+
+# Constants, the following values are based on the dimensions of the board image and the positions of the cells within it
 ASSET_DIR = Path(__file__).resolve().parent
 BOARD_WIDTH = 470
 BOARD_HEIGHT = 430
@@ -16,6 +18,7 @@ ROW_RANGES = ((32, 67), (67, 102), (102, 137), (165, 199), (199, 234), (234, 269
 COLUMN_POSITIONS = (58, 93, 128, 191, 226, 261, 324, 359, 394)
 ROW_POSITIONS = (32, 67, 102, 165, 200, 235, 298, 333, 368)
 
+# Initialize Pygame and set up the display
 pygame.init()
 screen = pygame.display.set_mode((BOARD_WIDTH, BOARD_HEIGHT))
 pygame.display.set_caption("ULTIMATE Tic Tac Toe - You: X, Random: O")
@@ -23,12 +26,13 @@ background = pygame.image.load(str(ASSET_DIR / "Board.png")).convert()
 cross_image = pygame.image.load(str(ASSET_DIR / "Cross.png")).convert_alpha()
 knot_image = pygame.image.load(str(ASSET_DIR / "Knot.png")).convert_alpha()
 
+# Set up the highlight sprite
 highlight_sprites = pygame.sprite.Group()
 highlight = Highlight((-200, -200))
 highlight_sprites.add(highlight)
 state = create_initial_state()
 
-
+#function to determine the cell at a given mouse position
 def cell_at_position(position):
     mouse_x, mouse_y = position
     column = next((index for index, bounds in enumerate(COLUMN_RANGES) if bounds[0] <= mouse_x < bounds[1]), None)
@@ -37,13 +41,13 @@ def cell_at_position(position):
         return None
     return column, row
 
-
+#function to highlight the location of the next legal move on the board
 def highlight_location(box_index):
     column = box_index % 3
     row = box_index // 3
     return 40 + column * 133, 14 + row * 133
 
-
+#function to draw the large mark (X or O) on the board
 def draw_large_mark(box_index, mark):
     column = box_index % 3
     row = box_index // 3
@@ -57,7 +61,7 @@ def draw_large_mark(box_index, mark):
         pygame.draw.line(screen, (255, 0, 0), (left, top), (left + 114, top + 133), 15)
         pygame.draw.line(screen, (255, 0, 0), (left + 114, top), (left, top + 133), 15)
 
-
+#draws the current state of the board on the screen
 def render_board(current_state):
     screen.blit(background, (0, 0))
     for bigbox, smallbox in enumerate(current_state["board"]):
@@ -71,7 +75,7 @@ def render_board(current_state):
         if mark:
             draw_large_mark(box_index, mark)
 
-
+#runs the main game loop, handling events and updating the display
 def run_game():
     global state
     running = True
