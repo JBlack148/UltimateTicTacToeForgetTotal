@@ -1,11 +1,10 @@
-import random
 import sys
 from pathlib import Path
 
 import pygame
 from pygame.locals import MOUSEBUTTONDOWN, QUIT
 
-from game_rules import create_initial_state, get_legal_moves, try_apply_move
+from game_rules import choose_monte_carlo_move, create_initial_state, get_legal_moves, try_apply_move
 from highlight import Highlight
 
 
@@ -21,7 +20,7 @@ ROW_POSITIONS = (32, 67, 102, 165, 200, 235, 298, 333, 368)
 # Initialize Pygame and set up the display
 pygame.init()
 screen = pygame.display.set_mode((BOARD_WIDTH, BOARD_HEIGHT))
-pygame.display.set_caption("ULTIMATE Tic Tac Toe - You: X, Random: O")
+pygame.display.set_caption("ULTIMATE Tic Tac Toe - You: X, Monte Carlo: O")
 background = pygame.image.load(str(ASSET_DIR / "Board.png")).convert()
 cross_image = pygame.image.load(str(ASSET_DIR / "Cross.png")).convert_alpha()
 knot_image = pygame.image.load(str(ASSET_DIR / "Knot.png")).convert_alpha()
@@ -94,8 +93,9 @@ def run_game():
                 if applied and not state["game_over"]:
                     legal_moves = get_legal_moves(state)
                     if legal_moves:
-                        opponent_move = random.choice(legal_moves)
-                        state, _ = try_apply_move(state, opponent_move)
+                        opponent_move = choose_monte_carlo_move(state, playouts=80)
+                        if opponent_move is not None:
+                            state, _ = try_apply_move(state, opponent_move)
                 if state["winner"]:
                     pygame.display.set_caption(f"ULTIMATE Tic Tac Toe - {state['winner']}")
 

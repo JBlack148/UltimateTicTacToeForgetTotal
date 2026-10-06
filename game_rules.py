@@ -1,3 +1,4 @@
+import random
 from copy import deepcopy
 
 
@@ -122,3 +123,104 @@ def try_apply_move(current_state, move):
         next_state["nextbox"] = list(range(9))
 
     return next_state, True
+
+# Choose a random legal move
+def choose_random_move(state):
+    legal_moves = get_legal_moves(state)
+    if not legal_moves:
+        return None
+    return random.choice(legal_moves)
+
+# determines the current player based on the move count
+def _root_player(state):
+    return "x" if state["count"] % 2 == 0 else "o"
+
+# calculates the score for a terminal game state from a specific player's perspective
+def _terminal_score(state, perspective):
+    if not state["game_over"]:
+        raise ValueError("Cannot score a game that is not over.")
+    winner = state["winner"]
+    if not winner:
+        raise ValueError("A completed game must have a winner; ties are not supported.")
+    # determine the player who won the game and compare it to the perspective player
+    winner_player = winner.split()[0].lower()
+    if winner_player == perspective:
+        return 1.0
+    return -1.0
+
+
+def _position_score(state, perspective):
+    opponent = "o" if perspective == "x" else "x"
+    weights = (0.0, 0.05, 0.2, 0.6)
+    score = 0.0
+    for line in WINNING_LINES:
+        cells = [state["largeboard"][index].lower() for index in line]
+        own_count = cells.count(perspective)
+        opponent_count = cells.count(opponent)
+        if opponent_count == 0:
+            score += weights[own_count]
+        if own_count == 0:
+            score -= weights[opponent_count]
+    return max(-1.0, min(1.0, score / (len(WINNING_LINES) * weights[3])))
+
+
+# plays out a random game for at most max_moves from the given state
+def _playout_random_game(state, randomizer=None, max_moves=100):
+    # if no randomizer is provided, use the default random module
+    randomizer = randomizer or random
+    # create a deep copy of the current state to avoid mutating it
+    trial_state = deepcopy(state)
+    for _ in range(max_moves):
+        if trial_state["game_over"]:
+            break
+        legal_moves = get_legal_moves(trial_state)
+        if not legal_moves:
+            raise RuntimeError("A nonterminal game state has no legal moves; ties are not supported.")
+        # choose a random legal move from the trial state
+        move = randomizer.choice(legal_moves)
+        # apply the chosen move to the trial state
+        trial_state, _ = try_apply_move(trial_state, move)
+    return trial_state
+
+# chooses the best move using Monte Carlo simulations
+def choose_monte_carlo_move(state, playouts=200, randomizer=None, max_simulated_moves=100):
+    if max_simulated_moves < 1:
+        raise ValueError("max_simulated_moves must be at least 1.")
+
+    # if the game is over, return None as there are no legal moves
+    legal_moves = get_legal_moves(state)
+    if not legal_moves:
+        return None
+
+    # if no randomizer is provided, use the default random module
+    randomizer = randomizer or random
+    # determine the current player based on the move count
+    player = _root_player(state)
+    # initialize a dictionary to keep track of the scores for each legal move
+    scores = {move: 0.0 for move in legal_moves}
+
+    # run Monte Carlo simulations for each legal move
+    for move in legal_moves:
+        # run the specified number of playouts for the current move
+        for _ in range(playouts):
+            # create a trial state by applying the move to a copy of the current state
+            trial_state, _ = try_apply_move(deepcopy(state), move)
+            # if the trial state is terminal, calculate the score directly; otherwise, play out a random game and calculate the score
+            if trial_state["game_over"]:
+                score = _terminal_score(trial_state, player)
+            else:
+                # play out a random game from the trial state and calculate the score based on the result
+                playout = _playout_random_game(
+                    trial_state,
+                    randomizer,
+                    max_moves=max_simulated_moves - 1,
+                )
+                if playout["game_over"]:
+                    score = _terminal_score(playout, player)
+                else:
+                    score = _position_score(playout, player)
+            # update the score for the current move based on the result of the playout
+            scores[move] += score
+    # Choose the highest score; equal scores resolve to the earliest legal move.
+    best_move = max(legal_moves, key=lambda move: (scores[move], -legal_moves.index(move)))
+    return best_move
