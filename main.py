@@ -4,7 +4,7 @@ from pathlib import Path
 import pygame
 from pygame.locals import MOUSEBUTTONDOWN, QUIT
 
-from game_rules import choose_monte_carlo_move, create_initial_state, get_legal_moves, try_apply_move
+from game_rules import choose_mcts_move, create_initial_state, get_legal_moves, try_apply_move
 from highlight import Highlight
 
 
@@ -20,7 +20,7 @@ ROW_POSITIONS = (32, 67, 102, 165, 200, 235, 298, 333, 368)
 # Initialize Pygame and set up the display
 pygame.init()
 screen = pygame.display.set_mode((BOARD_WIDTH, BOARD_HEIGHT))
-pygame.display.set_caption("ULTIMATE Tic Tac Toe - You: X, Monte Carlo: O")
+pygame.display.set_caption("ULTIMATE Tic Tac Toe - You: X, MCTS: O")
 background = pygame.image.load(str(ASSET_DIR / "Board.png")).convert()
 cross_image = pygame.image.load(str(ASSET_DIR / "Cross.png")).convert_alpha()
 knot_image = pygame.image.load(str(ASSET_DIR / "Knot.png")).convert_alpha()
@@ -74,12 +74,13 @@ def render_board(current_state):
         if mark:
             draw_large_mark(box_index, mark)
 
-#runs the main game loop, handling events and updating the display
+#runs the main game loop, handling events and updating the display 
 def run_game():
     global state
     running = True
     while running:
         for event in pygame.event.get():
+            # Handle quitting the game and mouse button clicks
             if event.type == QUIT:
                 running = False
             elif event.type == MOUSEBUTTONDOWN and not state["game_over"]:
@@ -90,16 +91,18 @@ def run_game():
                 bigbox = (row // 3) * 3 + column // 3
                 move = (bigbox, row % 3, column % 3)
                 state, applied = try_apply_move(state, move)
+                # If the move was successfully applied and the game is not over, let the MCTS opponent make a move
                 if applied and not state["game_over"]:
                     legal_moves = get_legal_moves(state)
                     if legal_moves:
-                        opponent_move = choose_monte_carlo_move(state, playouts=80)
+                        opponent_move = choose_mcts_move(state, iterations=120, max_rollout_moves=80)
                         if opponent_move is not None:
                             state, _ = try_apply_move(state, opponent_move)
                 if state["winner"]:
                     pygame.display.set_caption(f"ULTIMATE Tic Tac Toe - {state['winner']}")
 
         render_board(state)
+        # Highlight the next legal move or draw a red rectangle if there are multiple options
         if len(state["nextbox"]) > 1:
             pygame.draw.rect(screen, (255, 0, 0), (40, 14, 405, 405), width=5)
             highlight.update_position(None)

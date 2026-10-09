@@ -1,5 +1,9 @@
+import hashlib
+import json
+import math
 import random
 from copy import deepcopy
+from pathlib import Path
 
 
 WINNING_LINES = (
@@ -223,4 +227,180 @@ def choose_monte_carlo_move(state, playouts=200, randomizer=None, max_simulated_
             scores[move] += score
     # Choose the highest score; equal scores resolve to the earliest legal move.
     best_move = max(legal_moves, key=lambda move: (scores[move], -legal_moves.index(move)))
+    return best_move
+
+# MCTS Node class
+class _MCTSNode:
+    def __init__(self, state, parent=None, move=None):
+        self.state = deepcopy(state)
+        self.parent = parent
+        self.move = move
+        self.children = []
+        self.untried_moves = get_legal_moves(self.state)
+        self.visits = 0
+        self.total_value = 0.0
+
+    def is_terminal(self):
+        return self.state["game_over"]
+
+    # returns the best child node based on the UCT (Upper Confidence Bound for Trees) formula
+    def select_child(self, exploration=1.414):
+        best_score = float("-inf")
+        best_child = None
+        # calculate the logarithm of the parent's visit count for the exploration term
+        log_parent = math.log(self.visits) if self.visits > 0 else 0.0
+        # iterate through the children to calculate their scores based on exploitation and exploration
+        for child in self.children:
+            if child.visits == 0:
+                exploitation = 1.0
+            else:
+                exploitation = child.total_value / child.visits
+            # calculate the exploration term based on the child's visit count and the logarithm of the parent's visit count
+            exploration_term = exploration * math.sqrt(log_parent / child.visits) if child.visits > 0 else exploration * 10
+            score = exploitation + exploration_term
+            if score > best_score:
+                best_score = score
+                best_child = child
+        return best_child
+
+    # expands the current node by selecting an untried move, applying it to the state, and creating a new child node
+    def expand(self, randomizer=None):
+        randomizer = randomizer or random
+        move = randomizer.choice(self.untried_moves)
+        self.untried_moves.remove(move)
+        next_state, _ = try_apply_move(deepcopy(self.state), move)
+        child = _MCTSNode(next_state, parent=self, move=move)
+        self.children.append(child)
+        return child
+
+    # backpropagates the outcome of a playout up the tree
+    def backpropagate(self, outcome):
+        node = self
+        while node is not None:
+            node.visits += 1
+            node.total_value += outcome
+            node = node.parent
+
+
+MCTS_CACHE_PATH = Path(__file__).resolve().with_name("mcts_cache.json")
+
+# Generates a unique signature for a given game state
+def _state_signature(state):
+    payload = json.dumps(state, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+# Converts a move to a JSON-serializable format
+def _move_to_json(move):
+    if isinstance(move, tuple):
+        return list(move)
+    return move
+
+# writes the MCTS node to a dictionary for JSON serialization
+def _node_to_dict(node):
+    return {
+        "state": node.state,
+        "move": _move_to_json(node.move),
+        "visits": node.visits,
+        "total_value": node.total_value,
+        "untried_moves": [_move_to_json(move) for move in node.untried_moves],
+        "children": [_node_to_dict(child) for child in node.children],
+    }
+
+# reads the MCTS node from a dictionary for JSON deserialization
+def _node_from_dict(data, parent=None):
+    if data is None:
+        return None
+
+    move = data.get("move")
+    if isinstance(move, list):
+        move = tuple(move)
+
+    node = _MCTSNode(data["state"], parent=parent, move=move)
+    node.visits = data.get("visits", 0)
+    node.total_value = data.get("total_value", 0.0)
+
+    untried = data.get("untried_moves", [])
+    node.untried_moves = [tuple(move_data) if isinstance(move_data, list) else move_data for move_data in untried]
+    if not node.untried_moves:
+        node.untried_moves = get_legal_moves(node.state)
+
+    for child_data in data.get("children", []):
+        child = _node_from_dict(child_data, parent=node)
+        if child is not None:
+            node.children.append(child)
+
+    return node
+
+# loads the MCTS cache from a JSON file
+def _load_mcts_cache():
+    if not MCTS_CACHE_PATH.exists():
+        return {}
+    try:
+        with MCTS_CACHE_PATH.open("r", encoding="utf-8") as cache_file:
+            return json.load(cache_file)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+# saves the MCTS cache to a JSON file
+def _save_mcts_cache(state_key, root):
+    cache = _load_mcts_cache()
+    cache[state_key] = _node_to_dict(root)
+    with MCTS_CACHE_PATH.open("w", encoding="utf-8") as cache_file:
+        json.dump(cache, cache_file, sort_keys=True, indent=2)
+        cache_file.write("\n")
+
+# chooses the best move using the MCTS algorithm
+def choose_mcts_move(state, iterations=200, randomizer=None, max_rollout_moves=100):
+    if state["game_over"]:
+        return None
+
+    legal_moves = get_legal_moves(state)
+    if not legal_moves:
+        return None
+
+    randomizer = randomizer or random
+    root_player = _root_player(state)
+    state_key = _state_signature(state)
+    cache = _load_mcts_cache()
+    root = _node_from_dict(cache.get(state_key), parent=None) if state_key in cache else _MCTSNode(state)
+
+    for _ in range(iterations):
+        node = root
+
+        # Selection: Traverse the tree to find a node to expand
+        while not node.untried_moves and node.children and not node.is_terminal():
+            child = node.select_child()
+            if child is None:
+                break
+            node = child
+
+        if node.untried_moves and not node.is_terminal():
+            node = node.expand(randomizer=randomizer)
+
+        # Simulation: Play out a random game from the selected node's state
+        rollout_state = deepcopy(node.state)
+        for _ in range(max_rollout_moves):
+            if rollout_state["game_over"]:
+                break
+            rollout_moves = get_legal_moves(rollout_state)
+            if not rollout_moves:
+                raise RuntimeError("No legal moves in a nonterminal MCTS rollout state")
+            move = randomizer.choice(rollout_moves)
+            rollout_state, _ = try_apply_move(rollout_state, move)
+
+        if rollout_state["game_over"]:
+            outcome = _terminal_score(rollout_state, root_player)
+        else:
+            outcome = _position_score(rollout_state, root_player)
+
+        node.backpropagate(outcome)
+
+    # Choose the best move based on the highest visit count and total value
+    if root.children:
+        best_child = max(root.children, key=lambda child: (child.visits, child.total_value))
+        best_move = best_child.move if best_child else randomizer.choice(legal_moves)
+    else:
+        best_move = randomizer.choice(legal_moves)
+
+    _save_mcts_cache(state_key, root)
     return best_move
