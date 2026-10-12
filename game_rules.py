@@ -19,7 +19,8 @@ WINNING_LINES = (
 
 
 def create_initial_state():
-    return {
+    # creates the empty game state and tracks seen board signatures for repetition detection
+    state = {
         "count": 0,
         "nextbox": list(range(9)),
         "board": [[['', '', ''] for _ in range(3)] for _ in range(9)],
@@ -28,10 +29,14 @@ def create_initial_state():
         "large_win_history": {"X": [], "O": []},
         "game_over": False,
         "winner": None,
+        "seen_signatures": [],
     }
+    state["seen_signatures"].append(_state_cycle_signature(state))
+    return state
 
 
 def _copy_state(state):
+    # copies the current game state so move simulation does not mutate the live board
     return {
         "count": state["count"],
         "nextbox": state["nextbox"][:],
@@ -46,7 +51,21 @@ def _copy_state(state):
         },
         "game_over": state["game_over"],
         "winner": state["winner"],
+        "seen_signatures": state["seen_signatures"][:],
     }
+
+
+def _state_cycle_signature(state):
+    # hashes the board state and turn history so repeated positions can be detected as draws
+    payload = {
+        "count": state["count"],
+        "nextbox": state["nextbox"],
+        "board": state["board"],
+        "largeboard": state["largeboard"],
+        "piece_history": state["piece_history"],
+        "large_win_history": state["large_win_history"],
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _line_winner(cells):
@@ -123,9 +142,7 @@ def try_apply_move(current_state, move):
 
 def _apply_legal_move(state, move):
     bigbox, row, col = move
-    # increment the move count and determine the mark to place based on the count
     state["count"] += 1
-    # determine the mark to place based on the move count (even for "o", odd for "x")
     mark = "o" if state["count"] % 2 == 0 else "x"
     _place_piece(state, bigbox, row, col, mark)
 
@@ -139,6 +156,15 @@ def _apply_legal_move(state, move):
     if winner:
         state["game_over"] = True
         state["winner"] = winner
+        return
+
+    # if the same board state repeats, the game is a draw and should not continue forever
+    state_signature = _state_cycle_signature(state)
+    if state_signature in state["seen_signatures"]:
+        state["game_over"] = True
+        state["winner"] = "Draw"
+        return
+    state["seen_signatures"].append(state_signature)
 
     # determine the next box to play in based on the last move
     target_box = row * 3 + col
@@ -146,6 +172,7 @@ def _apply_legal_move(state, move):
         state["nextbox"] = [target_box]
     else:
         state["nextbox"] = list(range(9))
+
 
 # Choose a random legal move
 def choose_random_move(state, randomizer=None):
@@ -343,18 +370,15 @@ class _MCTSNode:
     def select_child(self, perspective, exploration=1.414):
         best_score = float("-inf")
         best_child = None
-        # calculate the logarithm of the parent's visit count for the exploration term
         log_parent = math.log(self.visits) if self.visits > 0 else 0.0
-        maximizing_player = _root_player(self.state) == perspective
-        # iterate through the children to calculate their scores based on exploitation and exploration
         for child in self.children:
             if child.visits == 0:
                 exploitation = 0.0
             else:
                 exploitation = child.total_value / child.visits
-                if not maximizing_player:
+                # In a zero-sum game, the reward flips sign as the turn passes to the opponent.
+                if _root_player(child.state) != perspective:
                     exploitation = -exploitation
-            # calculate the exploration term based on the child's visit count and the logarithm of the parent's visit count
             exploration_term = exploration * math.sqrt(log_parent / child.visits) if child.visits > 0 else exploration * 10
             score = exploitation + exploration_term
             if score > best_score:
@@ -379,6 +403,7 @@ class _MCTSNode:
         while node is not None:
             node.visits += 1
             node.total_value += outcome
+            outcome = -outcome
             node = node.parent
 
 

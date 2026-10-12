@@ -105,7 +105,7 @@ def run_game():
                         if neural_model is not None:
                             opponent_move = choose_neural_move(state, neural_model)
                         else:
-                            opponent_move = choose_mcts_move(state, iterations=500, max_rollout_moves=80)
+                            opponent_move = choose_mcts_move(state, iterations=1000, max_rollout_moves=80)
                         if opponent_move is not None:
                             state, _ = try_apply_move(state, opponent_move)
                 if state["winner"]:
