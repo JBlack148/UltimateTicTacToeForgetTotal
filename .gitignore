@@ -1,2 +1,9 @@
 __pycache__/
 .vscode/
+
+# generated training artifacts
+mcts_cache.json
+mcts_cache.json.tmp
+cprofile.prof
+neural_model.pt
+neural_replay.pt
