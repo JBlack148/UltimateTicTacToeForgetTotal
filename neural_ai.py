@@ -63,6 +63,7 @@ def _require_torch():
 
 
 if nn is not None:
+    # feeds the encoded game state through a shared trunk and produces policy/value heads
     class PolicyValueNetwork(nn.Module):
         def __init__(self):
             super().__init__()
@@ -75,10 +76,12 @@ if nn is not None:
             self.policy_head = nn.Linear(128, ACTION_COUNT)
             self.value_head = nn.Sequential(nn.Linear(128, 1), nn.Tanh())
 
+        # runs a single forward pass and returns action logits plus a value estimate
         def forward(self, features):
             shared = self.shared(features)
             return self.policy_head(shared), self.value_head(shared).squeeze(-1)
 else:
+    # fallback model wrapper that raises a clear error when PyTorch is unavailable
     class PolicyValueNetwork:
         def __init__(self):
             _require_torch()

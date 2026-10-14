@@ -54,18 +54,20 @@ def play_teacher_game(iterations, max_moves, randomizer, use_cache=False):
             raise RuntimeError("MCTS returned no move for a nonterminal state.")
 
         action = move[0] * 9 + move[1] * 3 + move[2]
-        examples.append((encode_state(state), action, player))
+        features = encode_state(state)
         state, applied = try_apply_move(state, move)
         if not applied:
             raise RuntimeError(f"MCTS selected an illegal move: {move}")
+        position_value = _position_score(state, player)
+        examples.append((features, action, player, position_value))
 
     labeled_examples = []
-    for features, action, player in examples:
+    for features, action, player, position_value in examples:
         if state["game_over"]:
             winner = state["winner"].split()[0].lower()
-            value = 1.0 if winner == player else -1.0
+            value = 0.0 if winner == "draw" else 1.0 if winner == player else -1.0
         else:
-            value = _position_score(state, player)
+            value = position_value
         labeled_examples.append((features, action, value))
 
     return state, labeled_examples

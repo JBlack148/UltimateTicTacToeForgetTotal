@@ -200,36 +200,106 @@ def _terminal_score(state, perspective):
     return -1.0
 
 
+# ages a large-box win so newer wins are worth more than older ones near forgetting time
+def _large_win_age(state, bigbox, player):
+    history = state["large_win_history"][player.upper()]
+    if bigbox not in history:
+        return 0.6
+
+    wins_until_forgotten = 4 - len(history) + history.index(bigbox)
+    return 0.55 + 0.45 * min(wins_until_forgotten, 3) / 3
+
+
+# scores how valuable a large box is for a player's immediate tactical plans
+def _large_box_importance(state, bigbox, player):
+    opponent = "o" if player == "x" else "x"
+    large_weights = (0.0, 0.18, 0.55, 1.0)
+    line_value = 0.0
+
+    for line in WINNING_LINES:
+        if bigbox not in line:
+            continue
+        cells = [state["largeboard"][index].lower() for index in line if index != bigbox]
+        own_count = cells.count(player)
+        if opponent not in cells:
+            line_value += large_weights[own_count + 1] - large_weights[own_count]
+
+    return 0.15 + min(line_value, 0.85)
+
+
+# scores a board position from a player's perspective by valuing large-box control, small-box threats, and win timing
 def _position_score(state, perspective):
     opponent = "o" if perspective == "x" else "x"
     large_weights = (0.0, 0.12, 0.42, 1.0)
-    small_weights = (0.0, 0.012, 0.04, 0.1)
+    small_weights = (0.0, 0.025, 0.1, 0.28)
 
-    def line_potential(cells, weights):
-        potential = 0.0
+    def line_potential(cells, player, weights, ages=None):
+        other_player = "o" if player == "x" else "x"
+        own_potential = 0.0
+        opponent_potential = 0.0
         for line in WINNING_LINES:
             line_cells = [cells[index] for index in line]
-            own_count = line_cells.count(perspective)
-            opponent_count = line_cells.count(opponent)
+            own_positions = [index for index in line if cells[index] == player]
+            opponent_positions = [index for index in line if cells[index] == other_player]
+            own_count = len(own_positions)
+            opponent_count = len(opponent_positions)
             if opponent_count == 0:
-                potential += weights[own_count]
+                age_weight = sum(ages[index] for index in own_positions) / own_count if ages and own_count else 1.0
+                own_potential += weights[own_count] * age_weight
             if own_count == 0:
-                potential -= weights[opponent_count]
-        return potential
+                age_weight = sum(ages[index] for index in opponent_positions) / opponent_count if ages and opponent_count else 1.0
+                opponent_potential += weights[opponent_count] * age_weight
+        return own_potential, opponent_potential
 
-    score = line_potential([mark.lower() for mark in state["largeboard"]], large_weights)
-    for bigbox, smallbox in enumerate(state["board"]):
-        if state["largeboard"][bigbox]:
+    large_cells = [mark.lower() for mark in state["largeboard"]]
+    large_ages = [
+        _large_win_age(state, bigbox, mark.lower()) if mark else 1.0
+        for bigbox, mark in enumerate(state["largeboard"])
+    ]
+    own_large_potential, opponent_large_potential = line_potential(
+        large_cells,
+        perspective,
+        large_weights,
+        large_ages,
+    )
+    score = own_large_potential - opponent_large_potential
+
+    for bigbox, mark in enumerate(large_cells):
+        if mark:
+            importance = _large_box_importance(state, bigbox, mark)
+            age = _large_win_age(state, bigbox, mark)
+            reward = 0.2 + 0.4 * importance
+            score += reward * age if mark == perspective else -reward * age
             continue
-        cells = [cell for row in smallbox for cell in row]
-        box_weight = 1.25 if bigbox == 4 else 1.0
-        if bigbox in state["nextbox"]:
-            box_weight *= 1.5
-        score += box_weight * line_potential(cells, small_weights)
+
+        cells = [cell for row in state["board"][bigbox] for cell in row]
+        own_importance = _large_box_importance(state, bigbox, perspective)
+        opponent_importance = _large_box_importance(state, bigbox, opponent)
+        active_box_weight = 1.5 if bigbox in state["nextbox"] else 1.0
+        own_small_potential, opponent_small_potential = line_potential(cells, perspective, small_weights)
+        score += active_box_weight * (
+            own_importance * own_small_potential
+            - opponent_importance * opponent_small_potential
+        )
+
+    side_to_move = _root_player(state)
+    immediate_win_value = max(
+        (
+            _large_box_importance(state, move[0], side_to_move)
+            for move in get_legal_moves(state)
+            if _would_win_small(state, move, side_to_move)
+        ),
+        default=0.0,
+    )
+    if side_to_move == perspective:
+        score += immediate_win_value
+    else:
+        score -= immediate_win_value
 
     return math.tanh(score / 2.0)
 
 
+# checks whether a move immediately creates a winning small-box line after forgetting rules are accounted for
 def _would_win_small(state, move, mark):
     bigbox, row, col = move
     cells = [cell for board_row in state["board"][bigbox] for cell in board_row]
@@ -241,6 +311,7 @@ def _would_win_small(state, move, mark):
     return _line_winner(cells) == mark
 
 
+# tests whether a move blocks the opponent from finishing a small-box line on the next turn
 def _blocks_small_threat(state, move, mark):
     bigbox, row, col = move
     opponent = "o" if mark == "x" else "x"
@@ -354,6 +425,7 @@ def choose_monte_carlo_move(state, playouts=200, randomizer=None, max_simulated_
 # MCTS Node class
 # each node keeps the board state, children, parent link, and accumulated visit statistics
 class _MCTSNode:
+    # creates a node for a board position and keeps the parent and incoming move for backtracking
     def __init__(self, state, parent=None, move=None, copy_state=True):
         self.state = _copy_state(state) if copy_state else state
         self.parent = parent
@@ -363,6 +435,7 @@ class _MCTSNode:
         self.visits = 0
         self.total_value = 0.0
 
+    # returns whether this node represents a completed game state
     def is_terminal(self):
         return self.state["game_over"]
 
@@ -462,6 +535,7 @@ MCTS_CACHE_WRITE_INTERVAL = 10
 _MCTS_CACHE_STATES = {}
 
 
+# returns the in-memory cache state for the current MCTS search directory
 def _get_mcts_cache_state():
     cache_path = MCTS_CACHE_PATH.resolve()
     if cache_path not in _MCTS_CACHE_STATES:
@@ -478,10 +552,12 @@ def _get_mcts_cache_state():
     return _MCTS_CACHE_STATES[cache_path]
 
 
+# loads the saved MCTS tree cache for one state index
 def _load_mcts_cache():
     return _get_mcts_cache_state()["data"]
 
 
+# flushes any dirty MCTS cache entries back to disk before shutdown
 def flush_mcts_cache():
     for cache_path, cache_state in _MCTS_CACHE_STATES.items():
         if not cache_state["dirty"]:
@@ -500,6 +576,7 @@ def flush_mcts_cache():
 atexit.register(flush_mcts_cache)
 
 
+# stores a root MCTS node in the in-memory cache so future searches can reuse it
 def _save_mcts_cache(state_key, root):
     cache_state = _get_mcts_cache_state()
     cache_state["roots"][state_key] = root
