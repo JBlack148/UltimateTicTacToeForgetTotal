@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 import random
 
-from evaluation import _choose_rollout_move, _position_score, _terminal_score
+from evaluation import _choose_rollout_move, _position_score, _prune_tactical_moves, _terminal_score
 from game_state import _apply_legal_move, _copy_state, _root_player, get_legal_moves
 
 
@@ -201,6 +201,9 @@ def choose_mcts_move(state, iterations=500, randomizer=None, max_rollout_moves=8
             node = child
 
         if node.untried_moves and not node.is_terminal():
+            tactical_moves = _prune_tactical_moves(node.state, node.untried_moves[:], root_player)
+            if len(tactical_moves) < len(node.untried_moves):
+                node.untried_moves = tactical_moves
             node = node.expand(randomizer=randomizer)
 
         rollout_state = _copy_state(node.state)

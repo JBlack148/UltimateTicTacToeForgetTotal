@@ -193,8 +193,46 @@ def _blocks_small_threat(state, move, mark):
     return False
 
 
+def _prune_tactical_moves(state, legal_moves, mark):
+    # Keep the branching factor small in tactical positions: winning moves, blocks,
+    # and safe responses are much more informative than random weak moves.
+    opponent = "o" if mark == "x" else "x"
+
+    immediate_wins = [move for move in legal_moves if _would_win_small(state, move, mark)]
+    if immediate_wins:
+        return immediate_wins
+
+    block_moves = [move for move in legal_moves if _blocks_small_threat(state, move, mark)]
+    if block_moves:
+        return block_moves
+
+    safe_moves = []
+    for move in legal_moves:
+        next_state = _copy_state(state)
+        _apply_legal_move(next_state, move)
+        if next_state["game_over"]:
+            safe_moves.append(move)
+            continue
+
+        opponent_moves = get_legal_moves(next_state)
+        if not opponent_moves:
+            safe_moves.append(move)
+            continue
+
+        if any(_would_win_small(next_state, opp_move, opponent) for opp_move in opponent_moves):
+            continue
+        safe_moves.append(move)
+
+    return safe_moves if safe_moves else legal_moves
+
+
+# ranks rollout moves by immediate tactical value before random tie-breaking
 def _choose_rollout_move(state, legal_moves, randomizer):
     mark = _root_player(state)
+    legal_moves = _prune_tactical_moves(state, legal_moves, mark)
+    if len(legal_moves) == 1:
+        return legal_moves[0]
+
     scored_moves = []
     for move in legal_moves:
         score = 0.0
