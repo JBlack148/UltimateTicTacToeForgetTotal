@@ -1,6 +1,6 @@
 import unittest
 
-from train_neural import _trim_training_examples
+from train_tree import _trim_training_examples
 
 
 class TrainingEfficiencyTests(unittest.TestCase):

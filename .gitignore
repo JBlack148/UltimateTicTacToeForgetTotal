@@ -7,3 +7,7 @@ mcts_cache.json.tmp
 cprofile.prof
 neural_model.pt
 neural_replay.pt
+tree_model.joblib
+tree_model.joblib.tmp
+tree_replay.npz
+tree_replay.tmp.npz

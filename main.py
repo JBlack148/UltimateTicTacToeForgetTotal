@@ -6,7 +6,7 @@ from pygame.locals import MOUSEBUTTONDOWN, QUIT
 
 from game_rules import choose_mcts_move, create_initial_state, get_legal_moves, try_apply_move
 from highlight import Highlight
-from neural_ai import choose_neural_move, load_model
+from tree_ai import choose_tree_move, load_model
 
 
 # Constants, the following values are based on the dimensions of the board image and the positions of the cells within it
@@ -22,11 +22,11 @@ ROW_POSITIONS = (32, 67, 102, 165, 200, 235, 298, 333, 368)
 pygame.init()
 screen = pygame.display.set_mode((BOARD_WIDTH, BOARD_HEIGHT))
 try:
-    neural_model = load_model()
-except RuntimeError as error:
-    print(f"{error} Falling back to MCTS.")
-    neural_model = None
-opponent_name = "Neural" if neural_model is not None else "MCTS"
+    tree_model = load_model()
+except Exception as error:
+    print(f"Could not load decision tree ({error}). Falling back to MCTS.")
+    tree_model = None
+opponent_name = "Decision Tree" if tree_model is not None else "MCTS"
 pygame.display.set_caption(f"ULTIMATE Tic Tac Toe - You: X, {opponent_name}: O")
 background = pygame.image.load(str(ASSET_DIR / "Board.png")).convert()
 cross_image = pygame.image.load(str(ASSET_DIR / "Cross.png")).convert_alpha()
@@ -102,8 +102,8 @@ def run_game():
                 if applied and not state["game_over"]:
                     legal_moves = get_legal_moves(state)
                     if legal_moves:
-                        if neural_model is not None:
-                            opponent_move = choose_neural_move(state, neural_model)
+                        if tree_model is not None:
+                            opponent_move = choose_tree_move(state, tree_model)
                         else:
                             opponent_move = choose_mcts_move(state, iterations=1000, max_rollout_moves=80)
                         if opponent_move is not None:
