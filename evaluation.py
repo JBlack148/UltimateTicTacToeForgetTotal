@@ -55,9 +55,9 @@ def _count_line_threats(cells, mark):
     for line in WINNING_LINES:
         values = [cells[index] for index in line]
         if values.count(mark) == 2 and values.count("") == 1:
-            score += 1
+            score += 3
         if values.count(opponent) == 2 and values.count("") == 1:
-            score -= 1
+            score -= 3
     return score
 
 
@@ -137,14 +137,14 @@ def _position_score(state, perspective):
 
     for move in get_legal_moves(state):
         if _would_win_small(state, move, perspective):
-            score += 4.5
+            score += 8.0
         if _would_win_small(state, move, opponent):
-            score -= 4.5
+            score -= 8.0
 
         if _blocks_small_threat(state, move, perspective):
-            score += 2.5
+            score += 5.0
         if _blocks_small_threat(state, move, opponent):
-            score -= 2.5
+            score -= 5.0
 
     legal_moves = get_legal_moves(state)
     if legal_moves:
@@ -226,12 +226,54 @@ def _prune_tactical_moves(state, legal_moves, mark):
     return safe_moves if safe_moves else legal_moves
 
 
+def _move_tactical_priority(state, move, mark):
+    """Higher is better for line-forming, win-ending, and forced-block moves."""
+    opponent = "o" if mark == "x" else "x"
+    if _would_win_small(state, move, mark):
+        return 100.0
+    if _blocks_small_threat(state, move, mark):
+        return 80.0
+
+    next_state = _copy_state(state)
+    _apply_legal_move(next_state, move)
+
+    if next_state["game_over"]:
+        return 60.0
+
+    my_followups = sum(
+        1 for candidate in get_legal_moves(next_state) if _would_win_small(next_state, candidate, mark)
+    )
+    opp_followups = sum(
+        1 for candidate in get_legal_moves(next_state) if _would_win_small(next_state, candidate, opponent)
+    )
+    score = 10.0 * my_followups - 12.0 * opp_followups
+
+    _, row, col = move
+    if row == 1 and col == 1:
+        score += 0.6
+    elif row != 1 and col != 1:
+        score += 0.2
+    return score
+
+
 # ranks rollout moves by immediate tactical value before random tie-breaking
 def _choose_rollout_move(state, legal_moves, randomizer):
     mark = _root_player(state)
     legal_moves = _prune_tactical_moves(state, legal_moves, mark)
     if len(legal_moves) == 1:
         return legal_moves[0]
+
+    best_score = float("-inf")
+    best_moves = []
+    for move in legal_moves:
+        score = _move_tactical_priority(state, move, mark)
+        if score > best_score:
+            best_score = score
+            best_moves = [move]
+        elif score == best_score:
+            best_moves.append(move)
+    if best_moves:
+        return randomizer.choice(best_moves)
 
     scored_moves = []
     for move in legal_moves:

@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 import random
 
-from evaluation import _choose_rollout_move, _position_score, _prune_tactical_moves, _terminal_score
+from evaluation import _choose_rollout_move, _position_score, _prune_tactical_moves, _terminal_score, _move_tactical_priority
 from game_state import _apply_legal_move, _copy_state, _root_player, get_legal_moves
 
 
@@ -224,10 +224,18 @@ def choose_mcts_move(state, iterations=500, randomizer=None, max_rollout_moves=8
         node.backpropagate(outcome)
 
     if root.children:
-        best_child = max(root.children, key=lambda child: (child.visits, child.total_value))
-        best_move = best_child.move if best_child else randomizer.choice(legal_moves)
+        tactical_options = [child.move for child in root.children if _move_tactical_priority(root.state, child.move, root_player) >= 60.0]
+        if tactical_options:
+            best_move = max(tactical_options, key=lambda move: _move_tactical_priority(root.state, move, root_player))
+        else:
+            best_child = max(root.children, key=lambda child: (child.visits, child.total_value))
+            best_move = best_child.move if best_child else randomizer.choice(legal_moves)
     else:
-        best_move = randomizer.choice(legal_moves)
+        tactical_options = [move for move in legal_moves if _move_tactical_priority(state, move, root_player) >= 60.0]
+        if tactical_options:
+            best_move = max(tactical_options, key=lambda move: _move_tactical_priority(state, move, root_player))
+        else:
+            best_move = randomizer.choice(legal_moves)
 
     if use_cache:
         _save_mcts_cache(state_key, root)
